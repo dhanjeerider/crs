@@ -29,6 +29,24 @@ const getBrowserHeaders = (url: string) => {
   };
 }
 
+
+// Helper to detect JS redirects like window.location = "..."
+function detectJSRedirect(html: string): string | null {
+  // Pattern 1: window.location.href = 'url'
+  const match1 = html.match(/window\.location\.href\s*=\s*["']([^"']+)["']/);
+  if (match1) return match1[1];
+
+  // Pattern 2: window.location = 'url'
+  const match2 = html.match(/window\.location\s*=\s*["']([^"']+)["']/);
+  if (match2) return match2[1];
+
+  // Pattern 3: content="0;url=..." (Meta refresh)
+  const match3 = html.match(/content=["']\d*;\s*url=([^"']+)["']/i);
+  if (match3) return match3[1];
+  
+  return null;
+}
+
 async function handleExtraction(url: string, format: ProxyFormat, className?: string, idName?: string): Promise<ApiResponse<ProxyResponse>> {
   const startTime = Date.now();
   let targetUrl: URL;
@@ -44,12 +62,42 @@ async function handleExtraction(url: string, format: ProxyFormat, className?: st
   }
 
   try {
-    const response = await fetch(targetUrl.toString(), {
+    let response = await fetch(targetUrl.toString(), {
       headers: getBrowserHeaders(targetUrl.toString()),
       redirect: 'follow'
     });
-    const contentType = response.headers.get("content-type") || "";
-    const rawBody = await response.text();
+
+    let rawBody = await response.text();
+    let contentType = response.headers.get("content-type") || "";
+
+    // Automatic Redirect Following (Max 2 hops to prevent loops)
+    let hops = 0;
+    while (contentType.includes("text/html") && hops < 2) {
+      const redirectLink = detectJSRedirect(rawBody);
+      if (!redirectLink) break;
+      
+      let nextUrlStr = redirectLink;
+      try {
+        if (!nextUrlStr.startsWith('http')) {
+           nextUrlStr = new URL(nextUrlStr, targetUrl).toString();
+        }
+        targetUrl = new URL(nextUrlStr); // Update current target
+        
+        console.log(`[Auto-Redirect] Following JS redirect to: ${targetUrl.toString()}`);
+        const nextRes = await fetch(targetUrl.toString(), {
+          headers: getBrowserHeaders(targetUrl.toString()),
+          redirect: 'follow'
+        });
+        
+        rawBody = await nextRes.text();
+        contentType = nextRes.headers.get("content-type") || "";
+        response = nextRes; // Update reference for status codes etc.
+        hops++;
+      } catch (e) {
+        break; // Stop if URL processing fails
+      }
+    }
+
     const result: ProxyResponse = {
       url: targetUrl.toString(),
       format,
@@ -132,12 +180,59 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const url = c.req.query('url');
     if (!url) return c.json({ success: false, error: 'URL required' }, 400);
     try {
-      const response = await fetch(url, { headers: { "User-Agent": USER_AGENT }, redirect: 'follow' });
+      let targetUrl = url;
+      try {
+         // pre-validation
+         new URL(targetUrl);
+      } catch(e) { return c.json({ success: false, error: 'Invalid URL' }, 400); }
+
+      let response = await fetch(targetUrl, { 
+        headers: getBrowserHeaders(targetUrl), 
+        redirect: 'follow' 
+      });
+      
+      let rawBody = await response.text();
+      let contentType = response.headers.get("content-type") || "";
+
+      // Only follow JS redirects if it is HTML
+      let hops = 0;
+      while (contentType.includes("text/html") && hops < 2) {
+          const redirectLink = detectJSRedirect(rawBody);
+          if (!redirectLink) break;
+          
+          let nextUrlStr = redirectLink;
+          try {
+            if (!nextUrlStr.startsWith('http')) {
+               nextUrlStr = new URL(nextUrlStr, targetUrl).toString();
+            }
+            targetUrl = nextUrlStr; // Update for recursive calls if needed
+            
+            const nextRes = await fetch(targetUrl, {
+              headers: getBrowserHeaders(targetUrl),
+              redirect: 'follow'
+            });
+            
+            rawBody = await nextRes.text();
+            contentType = nextRes.headers.get("content-type") || "";
+            response = nextRes;
+            hops++;
+          } catch (e) {
+            break;
+          }
+      }
+
+      // Handle HTML vs JSON vs Other
+      if (contentType.includes("application/json")) {
+        return c.newResponse(rawBody, {
+          status: response.status,
+          headers: response.headers
+        });
+      }
+
       const headers = new Headers(response.headers);
       Object.entries(CORS_HEADERS).forEach(([k, v]) => headers.set(k, v));
-      headers.set("X-Proxied-By", "FluxGate/2.1");
-      headers.set("X-Proxy-Mode", "Streaming");
-      return new Response(response.body, { status: response.status, headers });
+      headers.set("Content-Type", contentType); // Ensure content type is preserved
+      return c.body(rawBody, { status: response.status, headers });
     } catch (e) {
       return c.json({ success: false, error: 'Fetch failed' }, 502);
     }
