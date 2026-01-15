@@ -162,7 +162,15 @@ fetch(apiUrl.toString())
                   <Badge label="Status" val={result.status.http_code} variant={result.status.http_code >= 400 ? 'error' : 'success'} />
                   <Badge label="Latency" val={`${result.status.response_time_ms}ms`} />
                 </div>
-                <CodeBlock language={endpoint === 'proxy' ? 'html' : 'json'} code={getOutputCode()} />
+                <CodeBlock 
+                  language={
+                    endpoint !== 'proxy' ? 'json' :
+                    (result.status.content_type?.includes('json') ? 'json' :
+                    (result.status.content_type?.includes('xml') ? 'xml' : 
+                    'html'))
+                  } 
+                  code={getOutputCode()} 
+                />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-[400px] text-slate-600 border-2 border-dashed border-white/5 rounded-xl">

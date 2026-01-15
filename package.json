@@ -70,6 +70,7 @@
     "react-router-dom": "6.30.0",
     "react-select": "^5.10.2",
     "react-swipeable": "^7.0.2",
+    "react-syntax-highlighter": "^16.1.0",
     "react-use": "^17.6.0",
     "recharts": "2.15.4",
     "sonner": "^2.0.6",

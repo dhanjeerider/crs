@@ -6,7 +6,29 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
-const USER_AGENT = "FluxGate/2.1 (Cloudflare Worker; High-Performance Path-Based)";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+const getBrowserHeaders = (url: string) => {
+  const { host, origin } = new URL(url);
+  return {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "max-age=0",
+    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Host": host,
+    ...(!origin || origin === 'null' ? {} : { "Origin": origin, "Referer": origin })
+  };
+}
+
 async function handleExtraction(url: string, format: ProxyFormat, className?: string, idName?: string): Promise<ApiResponse<ProxyResponse>> {
   const startTime = Date.now();
   let targetUrl: URL;
@@ -15,13 +37,15 @@ async function handleExtraction(url: string, format: ProxyFormat, className?: st
   } catch (e) {
     return { success: false, error: 'Invalid Target URL' };
   }
+
   // Validate selectors for specific formats
   if ((format === 'class' && !className) || (format === 'id' && !idName)) {
     return { success: false, error: `Selector required for format: ${format}` };
   }
+
   try {
     const response = await fetch(targetUrl.toString(), {
-      headers: { "User-Agent": USER_AGENT },
+      headers: getBrowserHeaders(targetUrl.toString()),
       redirect: 'follow'
     });
     const contentType = response.headers.get("content-type") || "";
