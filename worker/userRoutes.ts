@@ -6,19 +6,24 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
 
-const getBrowserHeaders = (url: string) => {
+const getBrowserHeaders = (url: string, incomingHeaders?: Headers) => {
   const { host, origin } = new URL(url);
+  const ua = incomingHeaders?.get('user-agent') || USER_AGENT;
+  const secChUa = incomingHeaders?.get('sec-ch-ua') || '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"';
+  const secChUaMobile = incomingHeaders?.get('sec-ch-ua-mobile') || '?0';
+  const secChUaPlatform = incomingHeaders?.get('sec-ch-ua-platform') || '"Windows"';
+
   return {
-    "User-Agent": USER_AGENT,
+    "User-Agent": ua,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     "Cache-Control": "max-age=0",
-    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Ch-Ua": secChUa,
+    "Sec-Ch-Ua-Mobile": secChUaMobile,
+    "Sec-Ch-Ua-Platform": secChUaPlatform,
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
@@ -187,7 +192,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       } catch(e) { return c.json({ success: false, error: 'Invalid URL' }, 400); }
 
       let response = await fetch(targetUrl, { 
-        headers: getBrowserHeaders(targetUrl), 
+        headers: getBrowserHeaders(targetUrl, c.req.raw.headers), 
         redirect: 'follow' 
       });
       
@@ -212,7 +217,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
             
             console.log(`[Auto-Redirect] Following JS redirect to: ${targetUrl}`);
             
-            const nextHeaders = getBrowserHeaders(targetUrl);
+            const nextHeaders = getBrowserHeaders(targetUrl, c.req.raw.headers);
             if (cookies) nextHeaders["Cookie"] = cookies; // Forward cookies
 
             const nextRes = await fetch(targetUrl, {
