@@ -24,7 +24,7 @@ const getBrowserHeaders = (url: string) => {
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
-    "Host": host,
+    // "Host": host, // REMOVED: Caused 1016 errors in some CF Worker environments
     ...(!origin || origin === 'null' ? {} : { "Origin": origin, "Referer": origin })
   };
 }
@@ -194,9 +194,12 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       let rawBody = await response.text();
       let contentType = response.headers.get("content-type") || "";
 
+      // Cookie Jar for manual redirect following
+      let cookies = response.headers.get("set-cookie") || "";
+
       // Only follow JS redirects if it is HTML
       let hops = 0;
-      while (contentType.includes("text/html") && hops < 2) {
+      while (contentType.includes("text/html") && hops < 3) {
           const redirectLink = detectJSRedirect(rawBody);
           if (!redirectLink) break;
           
@@ -205,13 +208,22 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
             if (!nextUrlStr.startsWith('http')) {
                nextUrlStr = new URL(nextUrlStr, targetUrl).toString();
             }
-            targetUrl = nextUrlStr; // Update for recursive calls if needed
+            targetUrl = nextUrlStr;
             
+            console.log(`[Auto-Redirect] Following JS redirect to: ${targetUrl}`);
+            
+            const nextHeaders = getBrowserHeaders(targetUrl);
+            if (cookies) nextHeaders["Cookie"] = cookies; // Forward cookies
+
             const nextRes = await fetch(targetUrl, {
-              headers: getBrowserHeaders(targetUrl),
+              headers: nextHeaders,
               redirect: 'follow'
             });
             
+            // Append new cookies if any (simple merge)
+            const newCookies = nextRes.headers.get("set-cookie");
+            if (newCookies) cookies = cookies ? `${cookies}; ${newCookies}` : newCookies;
+
             rawBody = await nextRes.text();
             contentType = nextRes.headers.get("content-type") || "";
             response = nextRes;
